@@ -1,0 +1,13 @@
+# private notes
+NOTES.local.md
+LEARN.local.md
+
+# build outputs
+*.exe
+*.exp
+*.lib
+*.pdb
+*.o
+*.obj
+vadd
+conv
