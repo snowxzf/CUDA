@@ -18,8 +18,8 @@ which makes this a direct GPU-vs-custom-hardware comparison of one kernel.
 - CUDA Toolkit (provides `nvcc`)
 - On Windows, the MSVC C++ build tools (Visual Studio "Desktop development with C++"), which `nvcc` uses as its host compiler
 
-No local GPU? A [Google Colab](https://colab.research.google.com/) GPU runtime
-already includes both the GPU and `nvcc` (see below).
+A [Google Colab](https://colab.research.google.com/) GPU runtime
+already includes both the GPU and `nvcc` - can use if there is no access to an NVIDIA GPU. 
 
 ## Build and run
 
