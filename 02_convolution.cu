@@ -117,6 +117,7 @@ int main() {
     dim3 grid((W + TILE - 1) / TILE, (H + TILE - 1) / TILE);
     cudaEvent_t a, b; cudaEventCreate(&a); cudaEventCreate(&b);
     float ms;
+    const int ITERS = 100;   // average each kernel over many launches for a stable number
 
     // warm-up: the first launch pays one-time startup costs that would skew the timings
     convNaive<<<grid, block>>>(d_in, d_out);
@@ -124,20 +125,38 @@ int main() {
     cudaError_t e = cudaDeviceSynchronize();
     if (e != cudaSuccess) { printf("CUDA error: %s\n", cudaGetErrorString(e)); return 1; }
 
-    // naive GPU
-    cudaEventRecord(a); convNaive<<<grid, block>>>(d_in, d_out); cudaEventRecord(b);
-    cudaEventSynchronize(b); cudaEventElapsedTime(&ms, a, b);
-    cudaMemcpy(h_gpu, d_out, bytes, cudaMemcpyDeviceToHost);
-    printf("GPU naive: %.3f ms  (%.1fx vs CPU)  max error %.5f\n", ms, cpu_ms / ms, maxErr(h_cpu, h_gpu));
+    // host<->device transfer time: excluded from the kernel timings below, but it is
+    // part of real end-to-end cost, so measure it explicitly instead of hiding it.
+    cudaEventRecord(a); cudaMemcpy(d_in, h_in, bytes, cudaMemcpyHostToDevice); cudaEventRecord(b);
+    cudaEventSynchronize(b); cudaEventElapsedTime(&ms, a, b);  float h2d_ms = ms;
+    cudaEventRecord(a); cudaMemcpy(h_gpu, d_out, bytes, cudaMemcpyDeviceToHost); cudaEventRecord(b);
+    cudaEventSynchronize(b); cudaEventElapsedTime(&ms, a, b);  float d2h_ms = ms;
+    printf("Transfers: H2D %.3f ms + D2H %.3f ms = %.3f ms  (not counted in kernel times)\n",
+           h2d_ms, d2h_ms, h2d_ms + d2h_ms);
 
-    // tiled GPU (clear d_out first so leftover naive results can't mask a tiled bug)
-    cudaMemset(d_out, 0, bytes);
-    cudaEventRecord(a); convTiled<<<grid, block>>>(d_in, d_out); cudaEventRecord(b);
-    cudaEventSynchronize(b); cudaEventElapsedTime(&ms, a, b);
+    // naive GPU: average over ITERS launches
+    cudaEventRecord(a);
+    for (int it = 0; it < ITERS; it++) convNaive<<<grid, block>>>(d_in, d_out);
+    cudaEventRecord(b); cudaEventSynchronize(b); cudaEventElapsedTime(&ms, a, b);
+    float naive_ms = ms / ITERS;
     cudaMemcpy(h_gpu, d_out, bytes, cudaMemcpyDeviceToHost);
+    double naive_gpix = (double)n / (naive_ms * 1e-3) / 1e9;   // billions of pixels / second
+    printf("GPU naive: %.4f ms/run  %.2f Gpix/s  (%.1fx vs CPU)  max error %.5f\n",
+           naive_ms, naive_gpix, cpu_ms / naive_ms, maxErr(h_cpu, h_gpu));
+
+    // tiled GPU: clear d_out first (so leftover naive output can't mask a tiled bug),
+    // then average over ITERS launches
+    cudaMemset(d_out, 0, bytes);
+    cudaEventRecord(a);
+    for (int it = 0; it < ITERS; it++) convTiled<<<grid, block>>>(d_in, d_out);
+    cudaEventRecord(b); cudaEventSynchronize(b); cudaEventElapsedTime(&ms, a, b);
+    float tiled_ms = ms / ITERS;
+    cudaMemcpy(h_gpu, d_out, bytes, cudaMemcpyDeviceToHost);
+    double tiled_gpix = (double)n / (tiled_ms * 1e-3) / 1e9;
     float err = maxErr(h_cpu, h_gpu);
-    printf("GPU tiled: %.3f ms  (%.1fx vs CPU)  max error %.5f  %s\n",
-           ms, cpu_ms / ms, err, err < 1e-3f ? "(correct!)" : "(MISMATCH)");
+    printf("GPU tiled: %.4f ms/run  %.2f Gpix/s  (%.1fx vs CPU, %.2fx vs naive)  max error %.5f  %s\n",
+           tiled_ms, tiled_gpix, cpu_ms / tiled_ms, naive_ms / tiled_ms, err,
+           err < 1e-3f ? "(correct!)" : "(MISMATCH)");
 
     cudaFree(d_in); cudaFree(d_out);
     free(h_in); free(h_cpu); free(h_gpu);
