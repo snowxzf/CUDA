@@ -1,5 +1,4 @@
 // Step 2-4 — 3x3 image convolution: CPU baseline + naive GPU + tiled (shared-memory) GPU.
-// This is the SAME operation as the FPGA accelerator, so it lets you compare
 // GPU vs. custom-hardware acceleration of one kernel.
 //
 // Compile & run:
